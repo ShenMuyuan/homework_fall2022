@@ -1,7 +1,7 @@
 import abc
 import itertools
 from typing import Any
-from torch import nn
+from torch import nn, Tensor
 from torch.nn import functional as F
 from torch import optim
 
@@ -80,11 +80,17 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         else:
             observation = obs[None]
 
-        # TODO return the action that the policy prescribes
-        raise NotImplementedError
+        # convert ndarray to tensor
+        observation_tensor = torch.tensor(observation, device=ptu.device, dtype=torch.float)
+        # get action distribution from nn
+        act_distribution = self.forward(observation_tensor)
+        # sample from distribution
+        sampled_act: torch.Tensor = act_distribution.sample()
+        return sampled_act.detach().cpu().numpy()
 
     # update/train this policy
     def update(self, observations, actions, **kwargs):
+        # overriden
         raise NotImplementedError
 
     # This function defines the forward pass of the network.
@@ -92,8 +98,11 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # through it. For example, you can return a torch.FloatTensor. You can also
     # return more flexible objects, such as a
     # `torch.distributions.Distribution` object. It's up to you!
-    def forward(self, observation: torch.FloatTensor) -> Any:
-        raise NotImplementedError
+    def forward(self, observation: torch.Tensor) -> distributions.Distribution:
+        if self.discrete:
+            return distributions.Categorical(logits=self.logits_na(observation))
+        else:
+            return distributions.Normal(self.mean_net(observation), torch.exp(self.logstd)[None])
 
 
 #####################################################
@@ -105,11 +114,22 @@ class MLPPolicySL(MLPPolicy):
         self.loss = nn.MSELoss()
 
     def update(
-            self, observations, actions,
+            self, observations: np.ndarray, actions: np.ndarray,
             adv_n=None, acs_labels_na=None, qvals=None
     ):
-        # TODO: update the policy and return the loss
-        loss = TODO
+        self.optimizer.zero_grad()
+        obs = torch.tensor(observations, device=ptu.device, dtype=torch.float)
+        # actions of experts
+        actions_expert = torch.tensor(actions, device=ptu.device, dtype=torch.float)
+        # get action distributions from nn
+        act_distribution = self.forward(obs)
+        # calculate loss
+        loss = self.loss(act_distribution, actions_expert)
+        # backpropagation
+        loss.backward()
+        # optimize
+        self.optimizer.step()
+
         return {
             # You can add extra logging information here, but keep this line
             'Training Loss': ptu.to_numpy(loss),
