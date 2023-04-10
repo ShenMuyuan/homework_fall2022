@@ -1,5 +1,6 @@
 import os
 import time
+import pprint
 
 from cs285.infrastructure.rl_trainer import RL_Trainer
 from cs285.agents.bc_agent import BCAgent
@@ -37,9 +38,9 @@ class BC_Trainer(object):
         ## LOAD EXPERT POLICY
         #######################
 
-        print('Loading expert policy from...', self.params['expert_policy_file'])
+        # print('Loading expert policy from...', self.params['expert_policy_file'])
         self.loaded_expert_policy = LoadedGaussianPolicy(self.params['expert_policy_file'])
-        print('Done restoring expert policy...')
+        print('Loaded expert policy')
 
     def run_training_loop(self):
 
@@ -116,7 +117,7 @@ def main():
     ### RUN TRAINING
     ###################
 
-    print(params)
+    pprint.pprint(params)
     trainer = BC_Trainer(params)
     trainer.run_training_loop()
 

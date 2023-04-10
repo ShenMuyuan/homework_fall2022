@@ -3,7 +3,8 @@ from collections import OrderedDict
 import numpy as np
 import time
 
-import gym
+import gymnasium as gym
+# import gym
 import torch
 
 from cs285.infrastructure import pytorch_util as ptu
@@ -48,6 +49,7 @@ class RL_Trainer(object):
 
         # Maximum length for episodes
         self.params['ep_len'] = self.params['ep_len'] or self.env.spec.max_episode_steps
+        print("Maximum episode length is {}".format(self.params['ep_len']))
         MAX_VIDEO_LEN = self.params['ep_len']
 
         # Is this env continuous, or self.discrete?
@@ -91,7 +93,7 @@ class RL_Trainer(object):
         self.start_time = time.time()
 
         for itr in range(n_iter):
-            print("\n\n********** Iteration %i ************"%itr)
+            print("\n********** Start Iteration %i ************"%itr)
 
             # decide if videos should be rendered/logged at this iteration
             if itr % self.params['video_log_freq'] == 0 and self.params['video_log_freq'] != -1:
@@ -129,13 +131,14 @@ class RL_Trainer(object):
             if self.log_video or self.log_metrics:
 
                 # perform logging
-                print('\nBeginning logging procedure...')
                 self.perform_logging(
                     itr, paths, eval_policy, train_video_paths, training_logs)
 
                 if self.params['save_params']:
                     print('\nSaving agent params')
                     self.agent.save('{}/policy_itr_{}.pt'.format(self.params['logdir'], itr))
+
+            print("********** End Iteration %i ************" % itr)
 
     ####################################
     ####################################
@@ -161,13 +164,21 @@ class RL_Trainer(object):
         if itr == 0:
             # initial iter, load expert data
             with open(load_initial_expertdata, 'rb') as expert_file:
-                loaded_paths = pickle.load(expert_file)
+                loaded_paths = pickle.loads(expert_file.read())
+                print("\nInitial iter, loaded {} paths from expert data".
+                      format(len(loaded_paths)))
+            for i in range(len(loaded_paths)):
+                actions: np.ndarray = loaded_paths[i]["action"]
+                print("\tGet {} transitions in path {}".format(actions.shape[0], i))
+
             return loaded_paths, 0, None
         else:
             # other iters, use current policy to collect batch_size transitions
-            print("\nCollecting data to be used for training...")
             paths, envsteps_this_batch = \
                 utils.sample_trajectories(self.env, collect_policy, batch_size, self.params['ep_len'])
+            print("\nNon initial iter, collected {} transitions, "
+                  "in {} paths, episode length is {}"
+                  .format(batch_size, len(paths), self.params['ep_len']))
 
             # collect more rollouts with the same policy, to be saved as videos in tensorboard
             # note: here, we collect MAX_NVIDEO rollouts, each of length MAX_VIDEO_LEN
@@ -180,7 +191,6 @@ class RL_Trainer(object):
 
 
     def train_agent(self):
-        print('\nTraining agent using sampled data from replay buffer...')
         all_logs = []
         for train_step in range(self.params['num_agent_train_steps_per_iter']):
 
@@ -189,13 +199,16 @@ class RL_Trainer(object):
 
             train_log = self.agent.train(ob_batch, ac_batch, re_batch, next_ob_batch, terminal_batch)
             all_logs.append(train_log)
+        print('Trained {} steps, each step sampled {} transitions from buffer'
+              .format(self.params['num_agent_train_steps_per_iter'], self.params['train_batch_size']))
         return all_logs
 
     def do_relabel_with_expert(self, expert_policy, paths):
-        print("\nRelabelling collected observations with labels from an expert policy...")
 
         for i in range(len(paths)):
             paths[i]["action"] = expert_policy.get_action(paths[i]["observation"])
+
+        print("\nRelabeled paths using expert policy")
 
         return paths
 
@@ -204,9 +217,13 @@ class RL_Trainer(object):
 
     def perform_logging(self, itr, paths, eval_policy, train_video_paths, training_logs):
 
+        print('\nStart logging procedure')
+
         # collect eval trajectories, for logging
-        print("\nCollecting data for eval...")
+        # print("Collecting data for eval...")
         eval_paths, eval_envsteps_this_batch = utils.sample_trajectories(self.env, eval_policy, self.params['eval_batch_size'], self.params['ep_len'])
+        print("For eval, collected {} transitions in {} paths, max episode length is {}\n"
+              .format(self.params['eval_batch_size'], len(eval_paths), self.params['ep_len']))
 
         # save eval rollouts as videos in tensorboard event file
         if self.log_video and train_video_paths != None:
@@ -255,9 +272,11 @@ class RL_Trainer(object):
             logs["Initial_DataCollection_AverageReturn"] = self.initial_return
 
             # perform the logging
+            print("Statistics:")
             for key, value in logs.items():
-                print('{} : {}'.format(key, value))
+                print('\t{} : {}'.format(key, value))
                 self.logger.log_scalar(value, key, itr)
-            print('Done logging...\n\n')
 
             self.logger.flush()
+
+        print('Done logging procedure\n')

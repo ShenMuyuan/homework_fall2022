@@ -57,7 +57,7 @@ class LoadedGaussianPolicy(BasePolicy, nn.Module):
             'meansq_1_D']
         obsnorm_stdev = np.sqrt(
             np.maximum(0, obsnorm_meansq - np.square(obsnorm_mean)))
-        print('obs', obsnorm_mean.shape, obsnorm_stdev.shape)
+        # print('obs', obsnorm_mean.shape, obsnorm_stdev.shape)
 
         self.obs_norm_mean = nn.Parameter(ptu.from_numpy(obsnorm_mean))
         self.obs_norm_std = nn.Parameter(ptu.from_numpy(obsnorm_stdev))
@@ -93,12 +93,12 @@ class LoadedGaussianPolicy(BasePolicy, nn.Module):
         """)
 
     def get_action(self, obs):
-        if len(obs.shape) > 1:
+        if obs.ndim > 1:
             observation = obs
         else:
-            observation = obs[None, :]
+            observation = obs[np.newaxis, :]
         observation = ptu.from_numpy(observation.astype(np.float32))
-        action = self(observation)
+        action = self.forward(observation)
         return ptu.to_numpy(action)
 
     def save(self, filepath):

@@ -1,4 +1,5 @@
 from typing import Union
+from collections import OrderedDict
 
 import torch
 from torch import nn
@@ -46,18 +47,19 @@ def build_mlp(
         output_activation = _str_to_activation[output_activation]
 
     layers = []
+    # input
+    layers.append(nn.Linear(input_size, size))
+    layers.append(activation)
+    # hidden
     for index in range(n_layers):
-        if index == 0:  # input layer
-            layers.append(nn.Linear(input_size, size))
-            layers.append(activation)
-        elif index == n_layers - 1:
-            layers.append(nn.Linear(size, size))
-            layers.append(activation)
-        else:
-            layers.append(nn.Linear(size, output_size))
-            layers.append(output_activation)
+        layers.append(nn.Linear(size, size))
+        layers.append(activation)
+    # output
+    layers.append(nn.Linear(size, output_size))
+    layers.append(output_activation)
 
-    return nn.Sequential(layers)
+
+    return nn.Sequential(*layers)
 
 device = None
 
@@ -67,9 +69,12 @@ def init_gpu(use_gpu=True, gpu_id=0):
     if torch.cuda.is_available() and use_gpu:
         device = torch.device("cuda:" + str(gpu_id))
         print("Using GPU id {}".format(gpu_id))
+    # elif torch.backends.mps.is_available() and use_gpu:
+    #     device = torch.device("mps")
+    #     print("Using MPS")
     else:
         device = torch.device("cpu")
-        print("GPU not detected. Defaulting to CPU.")
+        print("GPU or MPS not detected. Defaulting to CPU.")
 
 
 def set_device(gpu_id):

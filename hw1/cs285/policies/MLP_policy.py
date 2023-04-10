@@ -58,14 +58,18 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
                 n_layers=self.n_layers, size=self.size,
             )
             self.mean_net.to(ptu.device)
-            self.logstd = nn.Parameter(
-                torch.zeros(self.ac_dim, dtype=torch.float32, device=ptu.device)
-            )
-            self.logstd.to(ptu.device)
-            self.optimizer = optim.Adam(
-                itertools.chain([self.logstd], self.mean_net.parameters()),
-                self.learning_rate
-            )
+            self.logstd = None
+            self.optimizer = optim.Adam(self.mean_net.parameters(),
+                                        self.learning_rate)
+            # remove logstd because it is not learned
+            # self.logstd = nn.Parameter(
+            #     torch.zeros(self.ac_dim, dtype=torch.float32, device=ptu.device)
+            # )
+            # self.logstd.to(ptu.device)
+            # self.optimizer = optim.Adam(
+            #     itertools.chain([self.logstd], self.mean_net.parameters()),
+            #     self.learning_rate
+            # )
 
     ##################################
 
@@ -75,18 +79,30 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     ##################################
 
     def get_action(self, obs: np.ndarray) -> np.ndarray:
-        if len(obs.shape) > 1:
+        if obs.ndim > 1:
+            # array of multiple observations
+            # do nothing
             observation = obs
         else:
-            observation = obs[None]
+            # array of single observation
+            # add a new dimension of size 1 to the first dimension
+            observation = obs[np.newaxis, :]
+            # observation = obs[None, :]  # OK
+            # observation = obs[None]  # OK
 
         # convert ndarray to tensor
-        observation_tensor = torch.tensor(observation, device=ptu.device, dtype=torch.float)
+        observation_tensor = ptu.from_numpy(observation)
         # get action distribution from nn
-        act_distribution = self.forward(observation_tensor)
-        # sample from distribution
-        sampled_act: torch.Tensor = act_distribution.sample()
-        return sampled_act.detach().cpu().numpy()
+        action_result = self.forward(observation_tensor)
+        # not sampling from distribution, because standard deviation is not learned (always one)
+        # print("action_result: ", action_result)
+        # action_distribution = distributions.Categorical(logits=action_result) if self.discrete \
+        #     else distributions.Normal(action_result, self.logstd.exp().expand_as(action_result))
+        # print("mean: ", action_distribution.mean)
+        # print("stddev: ", action_distribution.stddev)
+        # sampled_action: torch.Tensor = action_distribution.sample()
+        # print("sampled_action: ", sampled_action)
+        return ptu.to_numpy(action_result)
 
     # update/train this policy
     def update(self, observations, actions, **kwargs):
@@ -98,11 +114,11 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # through it. For example, you can return a torch.FloatTensor. You can also
     # return more flexible objects, such as a
     # `torch.distributions.Distribution` object. It's up to you!
-    def forward(self, observation: torch.Tensor) -> distributions.Distribution:
+    def forward(self, observation: torch.Tensor) -> torch.Tensor:
         if self.discrete:
-            return distributions.Categorical(logits=self.logits_na(observation))
+            return self.logits_na(observation)
         else:
-            return distributions.Normal(self.mean_net(observation), torch.exp(self.logstd)[None])
+            return self.mean_net(observation)
 
 
 #####################################################
@@ -118,13 +134,13 @@ class MLPPolicySL(MLPPolicy):
             adv_n=None, acs_labels_na=None, qvals=None
     ):
         self.optimizer.zero_grad()
-        obs = torch.tensor(observations, device=ptu.device, dtype=torch.float)
+        obs = ptu.from_numpy(observations)
         # actions of experts
-        actions_expert = torch.tensor(actions, device=ptu.device, dtype=torch.float)
-        # get action distributions from nn
-        act_distribution = self.forward(obs)
+        actions_expert = ptu.from_numpy(actions)
+        # get action (mean) from nn
+        actions_current = self.forward(obs)
         # calculate loss
-        loss = self.loss(act_distribution, actions_expert)
+        loss = self.loss(actions_current, actions_expert)
         # backpropagation
         loss.backward()
         # optimize
